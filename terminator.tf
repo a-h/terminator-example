@@ -227,3 +227,89 @@ resource "aws_s3_bucket" "terminator_build" {
         Name = "terminator-build"
     }
 }
+
+resource "aws_security_group" "terminator_aws_lambda_sg" {
+    name = "terminator_aws_lambda_sg"
+    description = "Allow outbound connections."
+    vpc_id = "${aws_vpc.terminator_vpc.id}"
+
+    # Allow all outgoing traffic.
+    egress {
+        from_port = 0
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    tags {
+      Name = "terminator_aws_lambda_sg"
+    }
+}
+
+resource "aws_iam_role" "iam_for_lambda" {
+    name = "iam_for_lambda"
+    assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+        "Action": "sts:AssumeRole",
+        "Principal": {
+            "Service": "lambda.amazonaws.com"
+        },
+        "Effect": "Allow",
+        "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy" "terminator_lambda_policy" {
+  name = "terminator_lambda_policy"
+  role = "${aws_iam_role.iam_for_lambda.id}"
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+        "Effect": "Allow",
+        "Resource": "*",
+        "Action": [
+            "ec2:DescribeInstances",
+            "ec2:CreateNetworkInterface",
+            "ec2:AttachNetworkInterface",
+            "ec2:DescribeNetworkInterfaces",
+            "autoscaling:CompleteLifecycleAction"
+        ]
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_lambda_function" "terminate_instance_on_new_release" {
+    filename = "terminate_instance_on_new_release.zip"
+    function_name = "terminate_instance_on_new_release"
+    role = "${aws_iam_role.iam_for_lambda.arn}"
+    handler = "index.handler"
+    source_code_hash = "${base64sha256(file("terminate_instance_on_new_release.zip"))}"
+    timeout = 300
+    vpc_config {
+        subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
+        security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
+    }
+}
+
+resource "aws_lambda_function" "terminate_old_versions" {
+    filename = "terminate_old_versions.zip"
+    function_name = "terminate_old_versions"
+    role = "${aws_iam_role.iam_for_lambda.arn}"
+    handler = "index.handler"
+    source_code_hash = "${base64sha256(file("terminate_old_versions.zip"))}"
+    timeout = 300
+    vpc_config {
+        subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
+        security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
+    }
+}
