@@ -273,6 +273,21 @@ resource "aws_iam_role_policy" "terminator_lambda_policy" {
   "Version": "2012-10-17",
   "Statement": [
     {
+        "Sid":"AllowCreationOfLogGroupsAndStreams",
+        "Effect":"Allow",
+        "Action":[
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream"
+        ],
+        "Resource":"arn:aws:logs:*:*:*"
+    },
+    {
+        "Sid":"AllowLogging",
+        "Effect":"Allow",
+        "Action":"logs:PutLogEvents",
+        "Resource":"arn:aws:logs:*:*:log-group:/aws/lambda/*:*"
+    },
+    {
         "Effect": "Allow",
         "Resource": "*",
         "Action": [
@@ -299,6 +314,7 @@ resource "aws_lambda_function" "terminate_instance_on_new_release" {
         subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
         security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
     }
+    runtime = "nodejs4.3"
 }
 
 resource "aws_lambda_function" "terminate_old_versions" {
@@ -312,4 +328,26 @@ resource "aws_lambda_function" "terminate_old_versions" {
         subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
         security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
     }
+    runtime = "nodejs4.3"
+}
+
+# Set the terminate_old_version Lambda to fire every 5 minutes.
+resource "aws_cloudwatch_event_rule" "every_five_minutes" {
+    name = "every-five-minutes"
+    description = "Fires every five minutes"
+    schedule_expression = "rate(5 minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "terminate_old_versions_every_five_minutes" {
+    rule = "${aws_cloudwatch_event_rule.every_five_minutes.name}"
+    target_id = "terminate_old_versions"
+    arn = "${aws_lambda_function.terminate_old_versions.arn}"
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_to_call_terminate_old_versions" {
+    statement_id = "AllowExecutionFromCloudWatch"
+    action = "lambda:InvokeFunction"
+    function_name = "${aws_lambda_function.terminate_old_versions.function_name}"
+    principal = "events.amazonaws.com"
+    source_arn = "${aws_cloudwatch_event_rule.every_five_minutes.arn}"
 }
