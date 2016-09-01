@@ -1,9 +1,19 @@
-var child_process = require('child_process');
+const spawn = require('child_process').spawn;
 
 exports.handler = function(event, context) {
-  var proc = spawn('./terminator', [ JSON.stringify(event) ], { stdio: 'inherit' });
+  const terminator = spawn('./terminator', ["-port=8080", "-isDryRun=false"]);
 
-  proc.on('close', function(code){
+  terminator.stdout.on('data', (data) => {
+    console.log(`stdout: ${data}`);
+  });
+
+  terminator.stderr.on('data', (data) => {
+    console.log(`stderr: ${data}`);
+  });
+
+  terminator.on('close', (code) => {
+    console.log(`child process exited with code ${code}`);
+    
     if(code !== 0) {
       return context.done(new Error("Process exited with non-zero status code"));
     }

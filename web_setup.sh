@@ -7,7 +7,6 @@ tar -C /usr/local -xzf go1.7.linux-amd64.tar.gz
 sudo bash -c 'echo "export PATH=$PATH:/usr/local/go/bin" >> /etc/profile.d/go-tools.sh'
 source /etc/profile.d/go-tools.sh
 
-
 # Setup workspace.
 echo "Creating git directory" $HOME/work/
 mkdir -p $HOME/work
