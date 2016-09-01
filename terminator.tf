@@ -203,7 +203,7 @@ resource "aws_elb" "terminator_web_elb" {
     healthy_threshold = 2
     unhealthy_threshold = 8
     timeout = 3
-    target = "HTTP:80/Version"
+    target = "HTTP:8080/Version"
     interval = 10
   }
 
