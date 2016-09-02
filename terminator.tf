@@ -217,9 +217,9 @@ resource "aws_launch_configuration" "terminator_lc_web" {
     key_name = "terminator_key_pair"
 
     security_groups = [
-      "${aws_security_group.terminator_web_access.id}",
-      "${aws_security_group.terminator_rdp_access.id}",
-      "${aws_security_group.terminator_ssh_access.id}"
+      "${aws_security_group.terminator_web_access.id}"
+      # "${aws_security_group.terminator_rdp_access.id}",
+      # "${aws_security_group.terminator_ssh_access.id}"
     ]
     name_prefix = "terminator_lc_web"
 
