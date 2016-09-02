@@ -121,14 +121,15 @@ resource "aws_internet_gateway" "terminator_gateway" {
     }
 }
 
-# Grant the VPC Internet access on its main route table
+# Grant the VPC Internet access on its main route table.
 resource "aws_route" "terminator_internet_access" {
   route_table_id         = "${aws_vpc.terminator_vpc.main_route_table_id}"
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = "${aws_internet_gateway.terminator_gateway.id}"
 }
 
-# Create a public subnet in the "terminator" VPC for each availability zone.
+# Create a public subnet in the "terminator" VPC.
+# Normally, you'd want one in each availability zone.
 resource "aws_subnet" "terminator_subnet" {
     vpc_id = "${aws_vpc.terminator_vpc.id}"
     cidr_block = "10.5.129.0/24" # 10.5.129.0 - 10.5.129.255
@@ -137,6 +138,50 @@ resource "aws_subnet" "terminator_subnet" {
     tags {
       Name = "terminator_subnet"
     }
+}
+
+# Create a subnet for running AWS Lambda functions. This is because we want
+# outbound web access and access to servers in the VPC.
+resource "aws_subnet" "terminator_lambda_subnet" {
+    vpc_id = "${aws_vpc.terminator_vpc.id}"
+    cidr_block = "10.5.0.0/24" # 10.5.0.0 - 10.5.0.128
+    map_public_ip_on_launch = true
+    availability_zone = "eu-west-1a"
+    tags {
+      Name = "terminator_lambda_subnet"
+    }
+}
+
+# Create a NAT gateway to allow the AWS Lambda subnet to access the Web.
+# The NAT gateway has to sit in the subnet which has the internet gateway.
+resource "aws_eip" "nat" {
+  vpc      = true
+}
+
+# Put a NAT gateway into the subnet which has Web access via the Internet Gateway.
+resource "aws_nat_gateway" "gw" {
+    allocation_id = "${aws_eip.nat.id}"
+    subnet_id = "${aws_subnet.terminator_subnet.id}"
+
+    depends_on = ["aws_internet_gateway.terminator_gateway"]
+}
+
+# Create a route table which will Web traffic from the Lambda subnet through to the NAT gateway.
+resource "aws_route_table" "route_to_nat_gateway" {
+    vpc_id = "${aws_vpc.terminator_vpc.id}"
+    tags {
+        Name = "route_to_nat_gateway"
+    }
+    route {
+        cidr_block = "0.0.0.0/0"
+        nat_gateway_id = "${aws_nat_gateway.gw.id}"
+    }
+}
+
+# Associate the Lambda subnet with the route table we just made.
+resource "aws_route_table_association" "lambda_to_public" {
+    subnet_id = "${aws_subnet.terminator_lambda_subnet.id}"
+    route_table_id = "${aws_route_table.route_to_nat_gateway.id}"
 }
 
 # Setup an auto scaling group for the development environment.
@@ -291,11 +336,13 @@ resource "aws_iam_role_policy" "terminator_lambda_policy" {
         "Effect": "Allow",
         "Resource": "*",
         "Action": [
-            "ec2:DescribeInstances",
             "ec2:CreateNetworkInterface",
             "ec2:AttachNetworkInterface",
             "ec2:DescribeNetworkInterfaces",
-            "autoscaling:CompleteLifecycleAction"
+            "autoscaling:CompleteLifecycleAction",
+            "ec2:DescribeInstances",
+            "ec2:TerminateInstances",
+            "autoscaling:DescribeAutoScalingGroups"
         ]
     }
   ]
@@ -311,7 +358,7 @@ resource "aws_lambda_function" "terminate_instance_on_new_release" {
     source_code_hash = "${base64sha256(file("terminate_instance_on_new_release.zip"))}"
     timeout = 300
     vpc_config {
-        subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
+        subnet_ids = ["${aws_subnet.terminator_lambda_subnet.id}"]
         security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
     }
     runtime = "nodejs4.3"
@@ -325,7 +372,7 @@ resource "aws_lambda_function" "terminate_old_versions" {
     source_code_hash = "${base64sha256(file("terminate_old_versions.zip"))}"
     timeout = 300
     vpc_config {
-        subnet_ids = ["${aws_subnet.terminator_subnet.id}"]
+        subnet_ids = ["${aws_subnet.terminator_lambda_subnet.id}"]
         security_group_ids = ["${aws_security_group.terminator_aws_lambda_sg.id}"]
     }
     runtime = "nodejs4.3"
